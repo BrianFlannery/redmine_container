@@ -3,7 +3,7 @@
 [[ ${git_debug+x} ]] || git_debug=''
 
 skip_docker_run=false
-use_aws_ecs=true
+use_aws_ecs=false
 v=0.0.5
 name=fcredmine
 namespace=bbuckets
@@ -43,24 +43,30 @@ main() {
 
     execute echo hi ;
     execute true ;
-    execute false ;
+    # execute false || echo "$? from execute false" ;
+    # { execute false; } || echo "$? from execute false" ;
+    ( execute false; ) || echo "$? from execute false" ;
     say_do echo howdy ;
     say_do true ;
-    say_do false ;
+    say_do false || echo "$? from execute false" ;
     vexecute true ;
-    vexecute false ;
+    # vexecute false || echo "$? from vexecute false" ;
+    # { vexecute false; } || echo "$? from vexecute false" ;
+    ( vexecute false; ) || echo "$? from vexecute false" ;
 
     mkdirp files db logs ;
     [[ ! -e db/redmine.db ]] || [[ db/redmine.db -ot redmine.db ]] || { bak redmine.db; cp -rp db/redmine.db redmine.db; }
     [[ -e $agile_plugin_file ]] || curl -Ls $agile_plugin_url > $agile_plugin_file
     # [[ -e $kanban_plugin_file ]] || curl -Ls $kanban_plugin_url > $kanban_plugin_file
-    get_kanban ;
+    # get_kanban ;
     mk_dockerfile ;
     mk_git_change_script ;
 
     say_do docker build --tag $namespace/$name:latest --tag $namespace/$name:$v .
     if [[ false == $skip_docker_run ]] ; then
       docker rm -f dockerredmine || true ;
+      chmod 777 logs ;
+      umask 000 ;
       execute docker run --name "dockerredmine" -d -p $localport:3000 \
         -v $(pwd)/files:/usr/src/redmine/files \
         -v    $(pwd)/db:/usr/src/redmine/vsqlite \
@@ -81,16 +87,33 @@ main() {
 }
 
 init() {
-  which aws || die "ERROR: Please install AWS cli."
+  which aws &>/dev/null || die "ERROR: Please install AWS cli."
 }
 final() {
   [[ ! -e db/redmine.db ]] || [[ db/redmine.db -ot redmine.db ]] || { bak redmine.db; cp -rp db/redmine.db redmine.db; }
 }
+execute() {
+  "$@" || die "ERROR: '$?' from {$*}."
+}
+vexecute() {
+  local e=''
+  echo "$@" 1>&2 ;
+  "$@" || e=$?
+  echo 1>&2 ;
+  [[ 0 -eq $e ]] || die "ERROR: '$?' from {$*}."
+}
 say_do() {
-  echo "$@"
+  echo "$@" 1>&2 ;
   "$@"
 }
+vsay_do() {
+  local e=''
+  say_do "$@" || e=$?
+  echo 1>&2 ;
+  return $e
+}
 die() { echo $1 ; exit 1 ; }
+rdie() { echo $1 ; return 1 ; }
 bak() {
   local f=$1 ;
   local fbak=$(bak_date "$f") ;
@@ -135,15 +158,6 @@ mkdirp() {
   for d in "$@" ; do
     [[ -d "$d" ]] || mkdir -p "$d" ;
   done ;
-}
-execute() {
-  "$@" || die "ERROR: '$?' from {$@}."
-}
-vexecute() {
-  local e=''
-  execute say_do "$@" || e=$?
-  echo 1>&2 ;
-  return $?
 }
 get_kanban() {
   [[ -e $kanban_plugin_file ]] || {
@@ -321,6 +335,8 @@ nohup bash -c \"sleep 30 ; cd /usr/src/redmine && { [[ -e log/05_after_startup.l
 \n\\
 exec \"\\\$@\"\n" >> /docker-entrypoint.sh
 RUN tail /docker-entrypoint.sh
+VOLUME /usr/src/redmine/vsqlite
+RUN chown -R redmine /usr/src/redmine
 EOFdfy
 }
 mk_git_change_script() {
@@ -358,8 +374,8 @@ main_() {
   local e=''
   main "$@" || e=$?
   final ;
-  echo "ERROR: exit code $e from main." 1>&2 ;
-  exit $e
+  [[ 0 -eq $e ]] || echo "ERROR: exit code '$e' from main." 1>&2 ;
+  return $e
 }
 cd $(dirname $0) && main_ "$@" ;
 
