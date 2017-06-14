@@ -1,0 +1,4 @@
+*.zip
+redmine.db
+db
+logs
