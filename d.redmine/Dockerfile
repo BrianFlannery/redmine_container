@@ -2,6 +2,7 @@ FROM redmine
 # FROM centos
 MAINTAINER Farts McButtons <example@example.com>
 
+RUN echo hi
 VOLUME /usr/src/redmine/db /usr/src/redmine/files /usr/src/redmine/log
 
 COPY git_change.sh /git_change.sh
@@ -15,6 +16,7 @@ ENV git_debug=''
 RUN mkdir /usr/src/redmine/sqlite
 COPY redmine.db /usr/src/redmine/sqlite/
 COPY config_database.yml /usr/src/redmine/config/database.yml
+RUN chown -R redmine /usr/src/redmine
 
 # # PLUGINS
 COPY redmine_checklists-3_1_5.zip /tmp/
@@ -34,15 +36,21 @@ RUN cd /usr/src/redmine/plugins && unzip -q /tmp/redmine_agile-1_4_3-light.zip \
 
 RUN cat /docker-entrypoint.sh > /tmp/docker-entrypoint.sh \
   && sed '$d' /tmp/docker-entrypoint.sh > /docker-entrypoint.sh \
-  && echo "ls /tmp/logs/* > /dev/null && mv /tmp/logs/* /usr/src/redmine/log/ || true\n\
-ls -lart /usr/src/redmine/db/ > /usr/src/redmine/log/db.log\n\
-ls -lart /usr/src/redmine/log/ > /usr/src/redmine/log/log.log\n\
-bash -c \"cd /usr/src/redmine && { [[ -L sqlite ]] || { mv sqlite sqlite_orig && ln -s vsqlite/ sqlite && [[ -e vsqlite/init ]] || { cp -rp sqlite_orig/* vsqlite/ && touch vsqlite/init ; } ; } ; }\"\n\
+  && echo "ls /tmp/logs/* &> /dev/null && mv /tmp/logs/* /usr/src/redmine/log/ || true\n\
+#bash -c \"cd /usr/src/redmine && { [[ -L sqlite ]] || { mv sqlite sqlite_orig && ln -s vsqlite/ sqlite && [[ -e vsqlite/init ]] || { cp -rp sqlite_orig/* vsqlite/ && touch vsqlite/init ; } ; } ; }\"\n\
+nohup bash -c \"cd /usr/src/redmine && { while [[ 1 ]] ; do sleep 30 ; cp -f sqlite/* vsqlite/ ; done ; }\" & echo '(Backgrounded db copy.)'\n\
 bash -c \"sleep 5 ; cd /usr/src/redmine && { [[ -e sqlite/config_database.yml ]] || cat config/database.yml > sqlite/config_database.yml ; }\"\n\
-nohup bash -c \"sleep 30 ; cd /usr/src/redmine && { [[ -e log/05_after_startup.log ]] || bash /git_change.sh "after_startup" > log/05_after_startup.log ; }\" & echo '(Backgrounded.)'\n\
+ls -lart /usr/src/redmine/ > /usr/src/redmine/log/redmine.log\n\
+ls -lart /usr/src/redmine/db/ > /usr/src/redmine/log/db.log\n\
+ls -lart /usr/src/redmine/sqlite/ > /usr/src/redmine/log/sqlite.log\n\
+ls -lart /usr/src/redmine/vsqlite/ > /usr/src/redmine/log/vsqlite.log\n\
+ls -lart /usr/src/redmine/log/ > /usr/src/redmine/log/log.log\n\
+nohup bash -c \"sleep 30 ; cd /usr/src/redmine && { [[ -e log/05_after_startup.log ]] || bash /git_change.sh "after_startup" > log/05_after_startup.log ; }\" & echo '(Backgrounded 30-second git change log.)'\n\
 \n\
 exec \"\$@\"\n" >> /docker-entrypoint.sh
 RUN tail /docker-entrypoint.sh
+VOLUME /usr/src/redmine/vsqlite
+# RUN chown -R redmine /usr/src/redmine
 
 ENTRYPOINT ["/docker-entrypoint.sh"]
 EXPOSE 3000
