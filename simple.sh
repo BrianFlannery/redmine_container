@@ -3,7 +3,7 @@
 db=mysql
 skip_docker_run=false
 use_aws_ecs=true
-v=0.0.5
+v=0.0.6
 name=fcredminesimple
 namespace=bbuckets
 localport=65531
