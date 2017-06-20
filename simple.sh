@@ -1,7 +1,7 @@
 #!/bin/bash
 
 skip_docker_run=false
-use_aws_ecs=false
+use_aws_ecs=true
 v=0.0.5
 name=fcredminesimple
 namespace=bbuckets
@@ -20,7 +20,9 @@ main() {
   [[ -d d.simple ]] || mkdir d.simple ;
   cd d.simple && {
     mkdirp files db logs ;
-    [[ ! -e db/redmine.db ]] || [[ db/redmine.db -ot redmine.db ]] || { bak redmine.db; cp -rp db/redmine.db redmine.db; }
+    if [[ sqlite == $db ]] ; then
+      [[ ! -e db/redmine.db ]] || [[ db/redmine.db -ot redmine.db ]] || { bak redmine.db; cp -rp db/redmine.db redmine.db; }
+    fi ;
     # [[ -e $agile_plugin_file ]] || curl -Ls $agile_plugin_url > $agile_plugin_file
     # [[ -e $checklists_plugin_file ]] || curl -Ls $checklists_plugin_url > $checklists_plugin_file
     mk_dockerfile ;
@@ -29,10 +31,12 @@ main() {
     say_do docker build --tag $namespace/$name:latest --tag $namespace/$name:$v .
     if [[ false == $skip_docker_run ]] ; then
       docker rm -f dockerredmine || true ;
+      vol3='' ;
+      if [[ sqlite == $db ]] ; then vol3="-v    $(pwd)/db:/usr/src/redmine/vsqlite" ; fi ;
       execute docker run --name "dockerredmine" -d -p $localport:3000 \
         -v $(pwd)/files:/usr/src/redmine/files \
-        -v    $(pwd)/db:/usr/src/redmine/vsqlite \
         -v  $(pwd)/logs:/usr/src/redmine/log \
+        $vol3 \
         $namespace/$name
       #
     fi ;
@@ -42,7 +46,9 @@ main() {
       $docker_login ;
       docker tag $namespace/$name:latest $aws_namespace/$name:latest
       docker tag $namespace/$name:latest $aws_namespace/$name:$v
-      docker push $aws_namespace/$name:latest
+      local cmd="docker push $aws_namespace/$name:latest"
+      echo $cmd > docker_push_command.sh
+      $cmd
     fi ; # END: if [[ true == $use_aws_ecs ]] ; else
     echo "Success."
   }
@@ -152,19 +158,25 @@ CMD ["rails", "server", "-b", "0.0.0.0"]
 EOFdfy
 }
 mk_df_init_db() {
+  local copy_init_db=false
+  if [[ sqlite == $db ]] ; then
     if [[ -e redmine.db ]] ; then
+      copy_init_db=true
+    fi ;
+  fi ;
+  if [[ true == $copy_init_db ]] ; then
     cat >> Dockerfile <<EOFdf2a
 RUN mkdir /usr/src/redmine/sqlite
 COPY redmine.db /usr/src/redmine/sqlite/
 COPY config_database.yml /usr/src/redmine/config/database.yml
 RUN chown -R redmine /usr/src/redmine
 EOFdf2a
-    else
+  else
     cat >> Dockerfile <<EOFdf2
-RUN nohup /docker-entrypoint.sh "rails" "server" "-b" "0.0.0.0" & sleep 20 \\
-  && cd /usr/src/redmine/sqlite && cp redmine.db redmine.db.init
+RUN nohup /docker-entrypoint.sh "rails" "server" "-b" "0.0.0.0" & sleep 20
+RUN cd /usr/src/redmine/sqlite && cp redmine.db redmine.db.init || true
 EOFdf2
-    fi ;
+  fi ;
 }
 mk_df_checklists_plugin() {
     cat >> Dockerfile <<EOFdf1ma

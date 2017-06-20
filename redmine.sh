@@ -2,6 +2,7 @@
 
 [[ ${git_debug+x} ]] || git_debug=''
 
+db=mysql
 skip_docker_run=false
 use_aws_ecs=false
 v=0.0.5
@@ -22,7 +23,9 @@ main() {
   [[ -d d.redmine ]] || mkdir d.redmine ;
   cd d.redmine && {
     mkdirp files db logs ;
-    [[ ! -e db/redmine.db ]] || [[ db/redmine.db -ot redmine.db ]] || { bak redmine.db; cp -rp db/redmine.db redmine.db; }
+    if [[ sqlite == $db ]] ; then
+      [[ ! -e db/redmine.db ]] || [[ db/redmine.db -ot redmine.db ]] || { bak redmine.db; cp -rp db/redmine.db redmine.db; }
+    fi ;
     [[ -e $agile_plugin_file ]] || curl -Ls $agile_plugin_url > $agile_plugin_file
     # [[ -e $kanban_plugin_file ]] || curl -Ls $kanban_plugin_url > $kanban_plugin_file
     # get_kanban ;
@@ -34,10 +37,12 @@ main() {
       docker rm -f dockerredmine || true ;
       # chmod 777 db ;
       # umask 000 ;
+      vol3='' ;
+      if [[ sqlite == $db ]] ; then vol3="-v    $(pwd)/db:/usr/src/redmine/vsqlite" ; fi ;
       execute docker run --name "dockerredmine" -d -p $localport:3000 \
         -v $(pwd)/files:/usr/src/redmine/files \
-        -v    $(pwd)/db:/usr/src/redmine/vsqlite \
         -v  $(pwd)/logs:/usr/src/redmine/log \
+        $vol3 \
         $namespace/$name
       #
     fi ;
@@ -186,20 +191,26 @@ EOFdf1a
     fi ;
 }
 mk_df_init_db() {
+  local copy_init_db=false
+  if [[ sqlite == $db ]] ; then
     if [[ -e redmine.db ]] ; then
+      copy_init_db=true
+    fi ;
+  fi ;
+  if [[ true == $copy_init_db ]] ; then
     cat >> Dockerfile <<EOFdf2a
 RUN mkdir /usr/src/redmine/sqlite
 COPY redmine.db /usr/src/redmine/sqlite/
 COPY config_database.yml /usr/src/redmine/config/database.yml
 RUN chown -R redmine /usr/src/redmine
 EOFdf2a
-    else
+  else
     cat >> Dockerfile <<EOFdf2
 RUN nohup /docker-entrypoint.sh "rails" "server" "-b" "0.0.0.0" & sleep 20 \\
-  && bash /git_change.sh "01" "after_rails_server_runs_once" \\
-  && cd /usr/src/redmine/sqlite && cp redmine.db redmine.db.init
+  && bash /git_change.sh "01" "after_rails_server_runs_once"
+RUN cd /usr/src/redmine/sqlite && cp redmine.db redmine.db.init || true
 EOFdf2
-    fi ;
+  fi ;
 }
 mk_df_checklists_plugin() {
     cat >> Dockerfile <<EOFdf1ma
@@ -207,8 +218,8 @@ COPY $checklists_plugin_file /tmp/
 RUN cd /usr/src/redmine/plugins && unzip -q /tmp/$checklists_plugin_file \\
   && rm -rf /tmp/$checklists_plugin_file \\
   && cd $checklists_plugin_dir && bundle install \\
-  && bundle exec rake redmine:plugins NAME=redmine_checklists RAILS_ENV=production \\
-  && cd /usr/src/redmine/sqlite && cp redmine.db redmine.db.after_redmine_checklists \\
+  && bundle exec rake redmine:plugins NAME=redmine_checklists RAILS_ENV=production
+RUN cd /usr/src/redmine/sqlite && cp redmine.db redmine.db.after_redmine_checklists || true \\
   && bash /git_change.sh "02a" "after_redmine_checklists"
 EOFdf1ma
 }
@@ -218,8 +229,8 @@ COPY $agile_plugin_file /tmp/
 RUN cd /usr/src/redmine/plugins && unzip -q /tmp/$agile_plugin_file \\
   && rm -rf /tmp/$agile_plugin_file \\
   && cd $agile_plugin_dir && bundle install \\
-  && bundle exec rake redmine:plugins NAME=redmine_agile RAILS_ENV=production \\
-  && cd /usr/src/redmine/sqlite && cp redmine.db redmine.db.after_redmine_agile \\
+  && bundle exec rake redmine:plugins NAME=redmine_agile RAILS_ENV=production
+RUN cd /usr/src/redmine/sqlite && cp redmine.db redmine.db.after_redmine_agile || true \\
   && bash /git_change.sh "02b" "after_redmine_agile"
 EOFdf1ma
 }
