@@ -189,7 +189,8 @@ EOFdf2a
   else
     cat >> Dockerfile <<EOFdf2
 RUN nohup /docker-entrypoint.sh "rails" "server" "-b" "0.0.0.0" & sleep 20
-RUN cd /usr/src/redmine && cp config_database.yml /usr/src/redmine/sqlite/config_database_init.yml || true
+RUN cd /usr/src/redmine && bash -c "[[ -d sqlite ]] || mkdir sqlite" \
+  && cp config/database.yml /usr/src/redmine/sqlite/config_database_init.yml || true
 RUN cd /usr/src/redmine/sqlite && cp redmine.db redmine.db.init || true
 EOFdf2
   fi ;
