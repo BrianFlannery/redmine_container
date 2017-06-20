@@ -1,5 +1,6 @@
 #!/bin/bash
 
+db=mysql
 skip_docker_run=false
 use_aws_ecs=true
 v=0.0.5
@@ -27,6 +28,7 @@ main() {
     # [[ -e $checklists_plugin_file ]] || curl -Ls $checklists_plugin_url > $checklists_plugin_file
     mk_dockerfile ;
     # mk_git_change_script ;
+    mk_secrets ;
 
     say_do docker build --tag $namespace/$name:latest --tag $namespace/$name:$v .
     if [[ false == $skip_docker_run ]] ; then
@@ -59,6 +61,7 @@ init() {
 }
 final() {
   [[ ! -e db/redmine.db ]] || [[ db/redmine.db -ot redmine.db ]] || { bak redmine.db; cp -rp db/redmine.db redmine.db; }
+  [[ ! -e secret_mysql_pw.txt ]] || rm secret_mysql_pw.txt ;
 }
 execute() {
   "$@" || die "ERROR: '$?' from {$*}."
@@ -163,6 +166,18 @@ mk_df_init_db() {
     if [[ -e redmine.db ]] ; then
       copy_init_db=true
     fi ;
+  elif [[ mysql == $db ]] ; then
+    touch secret_mysql_pw.txt
+    cat >> Dockerfile <<EOFdf3a
+RUN mkdir /purpose_config
+COPY secret_mysql_pw.txt /purpose_config/
+RUN chown -R redmine /purpose_config
+ENV REDMINE_DB_MYSQL=$REDMINE_DB_MYSQL \
+  REDMINE_DB_PORT=$REDMINE_DB_PORT \
+  REDMINE_DB_USERNAME=$REDMINE_DB_USERNAME \
+  REDMINE_DB_PASSWORD_FILE=/purpose_config/secret_mysql_pw.txt \
+  REDMINE_DB_DATABASE=$REDMINE_DB_DATABASE
+EOFdf3a
   fi ;
   if [[ true == $copy_init_db ]] ; then
     cat >> Dockerfile <<EOFdf2a
@@ -174,6 +189,7 @@ EOFdf2a
   else
     cat >> Dockerfile <<EOFdf2
 RUN nohup /docker-entrypoint.sh "rails" "server" "-b" "0.0.0.0" & sleep 20
+RUN cd /usr/src/redmine && cp config_database.yml /usr/src/redmine/sqlite/config_database_init.yml || true
 RUN cd /usr/src/redmine/sqlite && cp redmine.db redmine.db.init || true
 EOFdf2
   fi ;
@@ -216,6 +232,15 @@ RUN tail /docker-entrypoint.sh
 VOLUME /usr/src/redmine/vsqlite
 # RUN chown -R redmine /usr/src/redmine
 EOFdfy
+}
+mk_secrets() {
+  if [[ mysql == $db ]] ; then
+  if [[ -z "${REDMINE_DB_MYSQL+alreadyset}" ]] ; then
+    echo "NOTE: Found no mysql config variable like REDMINE_DB_MYSQL." 1>&2 ;
+  else
+    echo "${REDMINE_DB_PASSWORD}" > secret_mysql_pw.txt
+  fi ;
+  fi ;
 }
 
 main_() {
